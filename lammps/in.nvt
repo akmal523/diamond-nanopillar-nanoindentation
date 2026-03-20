@@ -1,0 +1,159 @@
+# --- Initialization ---
+units metal
+atom_style atomic
+boundary p p f
+
+# --- Block 1: Equilibration and Nanoindentation at 25°C ---
+
+read_data mini_diamond_nanopillar.lmp
+
+mass 1 12.011
+pair_style airebo 3.0 1 1
+pair_coeff * * CH.airebo C
+
+fix bottom_confine all wall/reflect zlo 0.0
+fix top_confine all wall/reflect zhi 107.1
+
+min_style cg
+minimize 1.0e-6 1.0e-8 1000 10000
+
+# unfix top_confine
+# unfix bottom_confine
+
+variable  temp_room equal 298.15
+variable  indenter_velocity equal -0.005
+variable  z_box_top equal 35.7
+
+thermo 1000
+thermo_style custom step temp pe ke etotal press vol
+# timestep 0.0005 
+timestep 0.00025
+
+compute zmax_current all reduce max z
+variable zmax equal c_zmax_current
+run 1
+print "Maximum z coordinate at start: ${zmax}"
+
+# --- Equilibration Phase at 25°C ---
+reset_timestep 0
+velocity all create ${temp_room} 12345
+fix 1 all nvt temp ${temp_room} ${temp_room} 0.1
+
+region bottom_region block INF INF INF INF 0.0 10.0 units box
+group bottom_atoms region bottom_region
+fix fixed_bottom_298K bottom_atoms setforce 0.0 0.0 0.0
+
+variable z_top_fixed_298K_lo equal ${z_box_top}-10.0 # Pre-calculate the lower z-bound
+region top_fixed_region_298K block INF INF INF INF ${z_top_fixed_298K_lo} ${z_box_top} units box
+group top_fixed_atoms_298K region top_fixed_region_298K
+fix fixed_top_298K top_fixed_atoms_298K setforce 0.0 0.0 0.0
+
+# --- reflecting wall at the top during equilibration ---
+fix top_confine_298K all wall/reflect zhi ${z_box_top}
+
+print "Starting equilibration at 25C..."
+run 50000
+print "Finished equilibration at 25C."
+
+unfix top_confine_298K
+unfix fixed_top_298K
+
+# --- Nanoindentation Setup for 25°C ---
+variable indenter_start_z_298K equal 37
+fix indenter_wall_298K all indent plane z ${indenter_start_z_298K} 10.0
+fix indenter_motion_298K indenter_wall_298K move linear 0.0 0.0 ${indenter_velocity}
+
+variable indenter_pos_298K equal f_indenter_wall_298K[3]
+variable indenter_force_298K equal f_indenter_wall_298K[4]
+
+thermo 100
+thermo_style custom step temp pe ke etotal press vol v_indenter_pos_298K v_indenter_force_298K
+
+dump 1 all atom 500 dump.nanopillar.298K.equil.lammpstrj
+dump 2 all atom 100 dump.nanopillar.indent.298K.lammpstrj
+dump_modify 2 sort id
+
+reset_timestep 0
+print "Starting nanoindentation at 25C..."
+run 200000
+print "Finished nanoindentation at 25C."
+
+unfix 1
+unfix fixed_bottom_298K
+unfix indenter_wall_298K
+unfix indenter_motion_298K
+undump 1
+undump 2
+clear
+
+# --- Simulation Block 2: Equilibration and Nanoindentation at 1000 K ---
+
+read_data diamond_nanopillar.lmp
+
+mass 1 12.011
+pair_style airebo 3.0 1 1
+pair_coeff * * CH.airebo C
+min_style cg
+minimize 1.0e-6 1.0e-8 1000 10000
+
+variable  temp_high equal 1000.0
+variable  indenter_velocity equal -0.005
+variable  z_box_top equal 35.7
+
+thermo 1000
+thermo_style custom step temp pe ke etotal press vol
+timestep 0.0005
+
+# --- Equilibration Phase at 1000 K ---
+reset_timestep 0
+velocity all create ${temp_high} 54321
+fix 3 all nvt temp ${temp_high} ${temp_high} 0.1
+
+region bottom_region block INF INF INF INF 0.0 10.0 units box
+group bottom_atoms region bottom_region
+fix fixed_bottom_1000K bottom_atoms setforce 0.0 0.0 0.0
+
+variable z_top_fixed_1000K_lo equal ${z_box_top}-10.0 # Pre-calculate the lower z-bound
+region top_fixed_region_1000K block INF INF INF INF ${z_top_fixed_1000K_lo} ${z_box_top} units box
+group top_fixed_atoms_1000K region top_fixed_region_1000K
+fix fixed_top_1000K top_fixed_atoms_1000K setforce 0.0 0.0 0.0
+
+# --- Add reflecting wall at the top during equilibration ---
+fix top_confine_1000K all wall/reflect zhi ${z_box_top}
+
+print "Starting equilibration at 1000K..."
+run 50000
+print "Finished equilibration at 1000K."
+
+# --- Remove wall and unfix top before indentation ---
+unfix top_confine_1000K
+unfix fixed_top_1000K
+
+# --- Nanoindentation Setup for 1000 K ---
+variable indenter_start_z_1000K equal 37
+fix indenter_wall_1000K all indent plane z ${indenter_start_z_1000K} 10.0
+fix indenter_motion_1000K indenter_wall_1000K move linear 0.0 0.0 ${indenter_velocity}
+
+variable indenter_pos_1000K equal f_indenter_wall_1000K[3]
+variable indenter_force_1000K equal f_indenter_wall_1000K[4]
+
+thermo 100
+thermo_style custom step temp pe ke etotal press vol v_indenter_pos_1000K v_indenter_force_1000K
+
+dump 4 all atom 500 dump.nanopillar.1000K.equil.lammpstrj
+dump 5 all atom 100 dump.nanopillar.indent.1000K.lammpstrj
+dump_modify 5 sort id
+
+reset_timestep 0
+print "Starting nanoindentation at 1000K..."
+run 200000
+print "Finished nanoindentation at 1000K."
+
+unfix 3
+unfix fixed_bottom_1000K
+unfix indenter_wall_1000K
+unfix indenter_motion_1000K
+undump 4
+undump 5
+
+print "All simulations complete."

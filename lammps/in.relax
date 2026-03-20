@@ -1,0 +1,48 @@
+units           metal
+dimension       3
+boundary        p p f
+
+atom_style      atomic
+read_data       nanopillar_bottom.lmp
+
+region          bottom_region block 0.0 71.4 0.0 71.4 0.0 5.0 units box
+group           bottom_atoms region bottom_region
+variable        n_bottom_atoms equal count(bottom_atoms)
+print           "Number of bottom_atoms = ${n_bottom_atoms}"
+fix             freeze bottom_atoms setforce 0.0 0.0 0.0
+
+pair_style      airebo 3.0
+pair_coeff      * * CH.airebo C
+
+neighbor        3.0 bin
+neigh_modify    delay 0 every 1 check yes
+
+min_style       fire
+minimize        1.0e-4 1.0e-6 10000 100000
+
+min_style       cg
+minimize        1.0e-8 1.0e-10 100000 1000000
+
+velocity        all create 300.0 12345 mom yes rot yes dist gaussian
+#fix             nvt all nvt temp 10.0 300.0 0.1
+dump		1 all custom 100 dump.relax.lammpstrj id type x y z vx vy vz
+dump_modify	1 sort id
+#thermo          100
+#thermo_style    custom step temp press pe ke etotal
+#timestep        0.00025
+#run             20000
+#run             2000
+#unfix           nvt
+
+
+fix nvt all nvt temp 300.0 300.0 0.1
+#run             40000
+run             4000
+unfix           nvt
+undump          1
+
+
+velocity        all set 0.0 0.0 0.0
+run             0
+
+write_data      relaxed1_nanopillar.lmp nocoeff

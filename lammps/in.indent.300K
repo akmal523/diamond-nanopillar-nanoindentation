@@ -1,0 +1,155 @@
+# Nanoindentation simulation at 300K
+# Generated: 2025-08-20 13:49:06 UTC
+# User: akmal523
+# LAMMPS metal units:
+# - length = Angstroms
+# - time = picoseconds
+# - energy = eV
+# - temperature = Kelvin
+# - force = eV/Angstrom
+# - pressure = bars
+# - velocity = Angstrom/picosecond
+
+# --- Initialization ---
+units metal
+atom_style atomic
+boundary p p f
+read_data relaxed_nanopillar.lmp
+log log_300K.lammps
+
+# --- Potential Setup ---
+pair_style airebo 3.0
+pair_coeff * * CH.airebo C
+neighbor 3.0 bin
+neigh_modify delay 0 every 1 check yes
+
+# Base simulation parameters
+timestep 0.001  # 1 fs in metal units
+mass 1 12.011   # Carbon mass
+
+# --- User Variables ---
+variable temp_run equal 300.0     # target temperature (K)
+variable r_indent equal 5.0       # indenter radius (Angstrom)
+variable k_indent equal 2.0       # indenter stiffness (eV/A^3)
+variable indent_speed equal 0.1   # indenter speed (A/ps)
+variable dt_ps equal 0.001       # timestep in ps
+variable pillar_radius equal 15.0 # pillar radius (A)
+
+# --- Initial Geometry Analysis ---
+compute maxz all reduce max z
+run 0
+
+# Box boundaries
+variable xlo equal xlo
+variable xhi equal xhi
+variable ylo equal ylo
+variable yhi equal yhi
+variable zlo equal zlo
+variable zhi equal zhi
+
+# Fixed region and pillar dimensions
+variable z_bottom_fixed equal "v_zlo + 5.0"
+variable z_top_atoms equal c_maxz
+print "DEBUG: z_top_atoms = ${z_top_atoms}"
+
+variable initial_pillar_height equal "v_z_top_atoms - v_z_bottom_fixed"
+print "DEBUG: initial_pillar_height = ${initial_pillar_height}"
+
+# Indenter positioning
+variable zstart_indent equal "v_z_top_atoms + 5.0"
+print "DEBUG: zstart_indent = ${zstart_indent}"
+
+# System center coordinates
+variable xmid equal "(v_xhi + v_xlo) / 2.0"
+variable ymid equal "(v_yhi + v_ylo) / 2.0"
+
+# --- Safety and Control Variables ---
+variable min_allowed_height equal "v_z_bottom_fixed + 2.0"  # 2A safety margin
+variable should_stop equal "v_current_pillar_height <= v_min_allowed_height"
+
+# --- Atom Groups Definition ---
+region bottom_fixed block INF INF INF INF ${zlo} ${z_bottom_fixed} units box
+group bottom_atoms region bottom_fixed
+fix bottom_thermo bottom_atoms langevin ${temp_run} ${temp_run} 0.1 12345
+group mobile subtract all bottom_atoms
+
+# Initialize velocities
+velocity mobile create ${temp_run} 12345 mom yes rot yes dist gaussian
+
+# --- Central Region for Analysis ---
+variable xlo_center equal "v_xmid - 10.0"
+variable xhi_center equal "v_xmid + 10.0"
+variable ylo_center equal "v_ymid - 10.0"
+variable yhi_center equal "v_ymid + 10.0"
+
+region center_top block ${xlo_center} ${xhi_center} ${ylo_center} ${yhi_center} ${z_bottom_fixed} INF units box
+group center_atoms region center_top
+
+# Height monitoring
+compute current_maxz_center center_atoms reduce max z
+variable current_pillar_height equal "c_current_maxz_center - v_z_bottom_fixed"
+
+# --- Time and Motion Variables ---
+variable time_ps equal "step * v_dt_ps"
+variable zpos_indent equal "v_zstart_indent - v_indent_speed * step * v_dt_ps"
+variable dz equal "v_zstart_indent - v_zpos_indent"
+
+# --- Enhanced Property Calculations ---
+# Stress and contact analysis with safety checks
+compute peratom_stress mobile stress/atom NULL
+compute pzz_sum mobile reduce sum c_peratom_stress[3]
+
+# Contact mechanics with basic safety checks
+variable raw_depth equal "v_zstart_indent - v_zpos_indent"
+variable contact_depth equal "v_raw_depth + 0.0001"
+variable contact_radius_sq equal "2.0 * v_r_indent * v_contact_depth - v_contact_depth * v_contact_depth + 0.0001"
+variable contact_radius equal "sqrt(abs(v_contact_radius_sq))"
+variable contact_area equal "PI * v_contact_radius * v_contact_radius + 0.0001"
+
+# Force and stress
+variable fz equal f_indent[3]
+variable true_stress_zz equal "v_fz / v_contact_area"
+variable strain equal "v_dz / v_initial_pillar_height"
+
+# Temperature monitoring - CORRECTED
+compute temp_instant mobile temp
+compute ke_per_atom mobile ke/atom
+variable temp_avg equal c_temp_instant
+
+# Temperature profile
+compute temp_profile mobile chunk/atom bin/1d z lower 1.0 units reduced
+
+# --- Fixes and Constraints ---
+fix indent all indent ${k_indent} sphere ${xmid} ${ymid} v_zpos_indent ${r_indent} units box
+fix integrator mobile nvt temp ${temp_run} ${temp_run} 0.1
+fix temp_avg all ave/chunk 100 10 1000 temp_profile temp file temp_profile_300K.dat
+fix check_height all halt 100 v_should_stop == 1 error continue
+
+# --- Output Settings ---
+compute pe_atom all pe/atom
+compute disp_vec all displace/atom
+
+thermo 1000
+thermo_style custom step temp press pe ke etotal v_zpos_indent v_fz &
+    v_current_pillar_height v_contact_area v_true_stress_zz &
+    v_time_ps v_dz v_strain v_temp_avg
+thermo_modify lost ignore
+
+# Data dumps
+dump 1 all custom 1000 dump.indent_300K id type x y z c_pe_atom &
+    c_disp_vec[1] c_disp_vec[2] c_disp_vec[3] c_peratom_stress[3]
+dump_modify 1 format float %.6g
+
+# Force evolution log
+fix force_log all print 1000 "${time_ps} ${fz} ${true_stress_zz} ${contact_area}" &
+    file force_evolution_300K.dat screen no
+
+# --- Run Simulation ---
+run 500000
+
+# --- Cleanup and Save ---
+write_data relaxed_indented300_nanopillar1.lmp
+unfix bottom_thermo
+unfix integrator
+undump 1
+clear

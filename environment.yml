@@ -1,0 +1,14 @@
+name: diamond-nanopillar-md
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11 # Or your preferred Python version, matching what you used before
+  - atomsk
+  - lammps
+  - numpy=1.26 # Pinning numpy version for f90wrap compatibility
+  - pandas
+  - matplotlib
+  - pip
+  - pip:
+    # Add any Python packages you might install via pip here if needed later
