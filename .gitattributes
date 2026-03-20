@@ -1,1 +1,4 @@
-in.* linguist-language=Tcl linguist-detectable=true
+in.indent.1000K linguist-language=Tcl linguist-detectable=true
+in.indent.300K linguist-language=Tcl linguist-detectable=true
+in.indent.nvt linguist-language=Tcl linguist-detectable=true
+in.indent.relax linguist-language=Tcl linguist-detectable=true
