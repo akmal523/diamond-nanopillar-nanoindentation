@@ -1,1 +1,1 @@
-in.diffusion.lammps linguist-language=Tcl linguist-detectable=true
+in.* linguist-language=Tcl linguist-detectable=true
